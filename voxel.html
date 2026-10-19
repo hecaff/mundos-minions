@@ -15,18 +15,18 @@ button{border-radius:0;border:2px solid #172019;background:#747b70;box-shadow:in
 // Motor de bloques WebGL 1 sin bibliotecas externas ni descargas de terceros.
 const canvas=document.getElementById('screen'),gl=canvas.getContext('webgl',{alpha:false,antialias:false,powerPreference:'low-power'});
 if(!gl){document.getElementById('enterWorld').textContent='WebGL no disponible';document.querySelector('.home-note').textContent='No se pudo iniciar WebGL. Recarga o revisa Safari.';document.getElementById('notice').textContent='Safari no pudo iniciar WebGL. Comprueba que esté habilitado.';return;}
-const vs='attribute vec3 p;attribute vec3 c;uniform mat4 m;varying vec3 col;varying vec3 world;void main(){world=p;col=c;gl_Position=m*vec4(p,1.0);}';
-const fs='precision mediump float;varying vec3 col;varying vec3 world;void main(){vec3 f=fract(world);vec3 edge=min(f,1.0-f);float b=0.0;if(edge.x<0.001)b=max(b,1.0-step(0.025,min(edge.y,edge.z)));if(edge.y<0.001)b=max(b,1.0-step(0.025,min(edge.x,edge.z)));if(edge.z<0.001)b=max(b,1.0-step(0.025,min(edge.x,edge.y)));gl_FragColor=vec4(col*mix(1.0,0.60,b),1.0);}';
+const vs='attribute vec3 p;attribute vec3 c;uniform mat4 m;varying vec3 col;varying vec3 world;uniform vec3 eye;varying float fogDistance;void main(){world=p;col=c;fogDistance=length(p.xz-eye.xz);gl_Position=m*vec4(p,1.0);}';
+const fs='precision mediump float;varying vec3 col;varying vec3 world;varying float fogDistance;uniform vec2 fogRange;void main(){vec3 f=fract(world);vec3 edge=min(f,1.0-f);float b=0.0;if(edge.x<0.001)b=max(b,1.0-step(0.025,min(edge.y,edge.z)));if(edge.y<0.001)b=max(b,1.0-step(0.025,min(edge.x,edge.z)));if(edge.z<0.001)b=max(b,1.0-step(0.025,min(edge.x,edge.y)));float fog=smoothstep(fogRange.x,fogRange.y,fogDistance);gl_FragColor=vec4(mix(col*mix(1.0,0.60,b),vec3(.55,.77,.89),fog),1.0);}';
 function shader(t,s){let sh=gl.createShader(t);gl.shaderSource(sh,s);gl.compileShader(sh);if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(sh));return sh}
 let program=gl.createProgram();gl.attachShader(program,shader(gl.VERTEX_SHADER,vs));gl.attachShader(program,shader(gl.FRAGMENT_SHADER,fs));gl.linkProgram(program);gl.useProgram(program);
-const pLoc=gl.getAttribLocation(program,'p'),cLoc=gl.getAttribLocation(program,'c'),mLoc=gl.getUniformLocation(program,'m');const buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.enableVertexAttribArray(pLoc);gl.enableVertexAttribArray(cLoc);gl.vertexAttribPointer(pLoc,3,gl.FLOAT,false,24,0);gl.vertexAttribPointer(cLoc,3,gl.FLOAT,false,24,12);
+const pLoc=gl.getAttribLocation(program,'p'),cLoc=gl.getAttribLocation(program,'c'),mLoc=gl.getUniformLocation(program,'m'),eyeLoc=gl.getUniformLocation(program,'eye'),fogLoc=gl.getUniformLocation(program,'fogRange');const buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.enableVertexAttribArray(pLoc);gl.enableVertexAttribArray(cLoc);gl.vertexAttribPointer(pLoc,3,gl.FLOAT,false,24,0);gl.vertexAttribPointer(cLoc,3,gl.FLOAT,false,24,12);
 gl.enable(gl.DEPTH_TEST);gl.clearColor(.55,.77,.89,1);
 const colors={1:[.36,.66,.28],2:[.49,.32,.19],3:[.57,.61,.65],4:[.61,.41,.22],5:[.22,.50,.25]};
 const seedHeight=(x,z)=>Math.max(1,Math.floor(2.7+Math.sin(x*.21)*1.2+Math.cos(z*.25)*1.1+Math.sin((x+z)*.12)));
 let thirdPerson=true,cameraMode=0;const changes={};let selected=1;let px=1.5,py=8,pz=13,yaw=0,pitch=-.25;let dirty=true,vertexCount=0,worldLoading=true;
 // Señales aproximadas: Safari no informa de forma fiable el modelo exacto.
 const touchDevice=navigator.maxTouchPoints>1,appleTablet=/iPad/.test(navigator.userAgent)||(/Macintosh/.test(navigator.userAgent)&&touchDevice),mobileDevice=touchDevice||/Android|iPhone/.test(navigator.userAgent);
-const profiles=[{name:'Ligera',scale:.55,radius:8,pixels:650000},{name:'Equilibrada',scale:.8,radius:12,pixels:1100000},{name:'Alta',scale:1,radius:16,pixels:2100000}];
+const profiles=[{name:'Ligera',scale:.85,radius:10,pixels:850000},{name:'Equilibrada',scale:1,radius:15,pixels:1600000},{name:'Alta',scale:1,radius:20,pixels:2600000}];
 const initialQuality=mobileDevice?0:1;let qualityLevel=initialQuality,qualityMode='auto',qualityElapsed=0,qualityFrames=0,fastWindows=0,slowWindows=0;
 const qualitySelect=document.getElementById('qualityMode');
 function describeQuality(){document.getElementById('qualityInfo').textContent=(qualityMode==='auto'?'Automática: ':'Manual: ')+profiles[qualityLevel].name+' · '+(appleTablet?'iPad detectado':mobileDevice?'Dispositivo táctil':'PC')+'. Ajusta resolución y distancia de visión.';}
@@ -35,7 +35,22 @@ function chooseQuality(value){qualityMode=['auto','0','1','2'].includes(value)?v
 qualitySelect.onchange=()=>chooseQuality(qualitySelect.value);let storedQuality='auto';try{storedQuality=localStorage.getItem('mc-quality')||'auto'}catch(e){}chooseQuality(storedQuality);
 function sampleQuality(elapsed){if(qualityMode!=='auto'||elapsed<=0)return;qualityElapsed+=elapsed;qualityFrames++;if(qualityElapsed<5000)return;const fps=qualityFrames*1000/qualityElapsed;slowWindows=fps<28?slowWindows+1:0;fastWindows=fps>55?fastWindows+1:0;let next=qualityLevel;if(slowWindows>=2)next=Math.max(0,qualityLevel-1);else if(fastWindows>=3)next=Math.min(2,qualityLevel+1);if(next!==qualityLevel){qualityLevel=next;dirty=true;fastWindows=slowWindows=0;describeQuality();}qualityElapsed=0;qualityFrames=0;}
 const key=(x,y,z)=>x+','+y+','+z;
-function terrain(x,y,z){if(x < -40||x>40||z < -40||z>40||y<0||y>20)return 0;const h=seedHeight(x,z);return y>h?0:y===h?1:y>h-3?2:3;}
+// Small deterministic voxel trees: generated once, merged into the terrain mesh.
+// Existing saved edits always override these blocks, including removed leaves.
+const trees=new Map();
+for(let x=-34;x<=34;x+=8)for(let z=-34;z<=34;z+=8){
+ const hash=((x+40)*73856093^(z+40)*19349663)>>>0;
+ const tx=x+hash%3,tz=z+(hash>>>4)%3;
+ if(Math.hypot(tx-1.5,tz-13)<6)continue; // Keep the spawn clearing open.
+ const ground=seedHeight(tx,tz),height=3+(hash>>>8)%2;
+ for(let y=ground+1;y<=ground+height;y++)trees.set(key(tx,y,tz),4);
+ for(let dx=-2;dx<=2;dx++)for(let dz=-2;dz<=2;dz++)for(let dy=0;dy<=2;dy++){
+  if(Math.abs(dx)+Math.abs(dz)>(dy===2?1:3))continue;
+  const y=ground+height+dy,k=key(tx+dx,y,tz+dz);
+  if(y>seedHeight(tx+dx,tz+dz)&&!trees.has(k))trees.set(k,5);
+ }
+}
+function terrain(x,y,z){if(x < -40||x>40||z < -40||z>40||y<0||y>20)return 0;const h=seedHeight(x,z);return y>h?(trees.get(key(x,y,z))||0):y===h?1:y>h-3?2:3;}
 function get(x,y,z){const k=key(x,y,z);return Object.prototype.hasOwnProperty.call(changes,k)?changes[k]:terrain(x,y,z)}
 function set(x,y,z,id){if(worldLoading)return;if(Math.abs(x)>39||Math.abs(z)>39||y<0||y>20)return;const k=key(x,y,z);if(terrain(x,y,z)===id)delete changes[k];else changes[k]=id;dirty=true;scheduleSave()}
 let saveTimer,savePending=false;function scheduleSave(){savePending=true;clearTimeout(saveTimer);document.getElementById('stats').textContent='Guardando cambios...';saveTimer=setTimeout(()=>window.gameWorldFetch('voxel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({changes})}).then(r=>{if(!r.ok)throw Error('Error de servidor');savePending=false;document.getElementById('stats').textContent='✓ Guardado en este navegador'}).catch(()=>document.getElementById('stats').textContent='⚠ Sin guardar: revisa conexión'),700)}
@@ -77,8 +92,8 @@ function camera(){
  if(!thirdPerson)return {x:px,y:py,z:pz,yaw,pitch};
  const front=cameraMode===1,angle=yaw+(front?Math.PI:0),tilt=front?-pitch:pitch;
  const fx=Math.sin(angle)*Math.cos(tilt),fy=Math.sin(tilt),fz=-Math.cos(angle)*Math.cos(tilt);
- const shoulder=front?0:.52;const origin={x:px+Math.cos(yaw)*shoulder,y:py-1.6+playerCharacter.height*.94-.27,z:pz+Math.sin(yaw)*shoulder};let distance=.18;
- for(let t=.18;t<=(front?2.1:1.53);t+=.05){const x=origin.x-fx*t,y=origin.y-fy*t,z=origin.z-fz*t;if(get(Math.floor(x),Math.floor(y),Math.floor(z)))break;distance=t;}
+ const shoulder=front?0:.52;const origin={x:px+Math.cos(yaw)*shoulder,y:py-1.6+playerCharacter.height*.94-.12,z:pz+Math.sin(yaw)*shoulder};let distance=.18;
+ for(let t=.18;t<=(front?3.4:3.0);t+=.05){const x=origin.x-fx*t,y=origin.y-fy*t,z=origin.z-fz*t;if(get(Math.floor(x),Math.floor(y),Math.floor(z)))break;distance=t;}
  return {x:origin.x-fx*distance,y:origin.y-fy*distance,z:origin.z-fz*distance,yaw:angle,pitch:tilt};
 }
 function updateView(){thirdPerson=cameraMode!==2;dirty=true;document.body.classList.toggle('third-person',thirdPerson);document.getElementById('cameraButton').textContent=['Vista: hombro','Vista: frente','Vista: primera'][cameraMode];}
@@ -133,7 +148,7 @@ let actionClock=0;
 let last=performance.now(),lastcx=0,lastcz=0,frames=0,frameClock=last;function frame(now){requestAnimationFrame(frame);if(worldLoading||menuOpen||!inventory.hidden||!settings.hidden||document.hidden){last=now;qualityElapsed=qualityFrames=0;return;}const elapsed=now-last;sampleQuality(elapsed);let dt=Math.min(elapsed/1000,.05);last=now;let fw=(keys.w||keys.arrowup?1:0)-(keys.s||keys.arrowdown?1:0)-joyY,side=(keys.d||keys.arrowright?1:0)-(keys.a||keys.arrowleft?1:0)+joyX;const magnitude=Math.max(1,Math.hypot(fw,side));fw/=magnitude;side/=magnitude;const oldX=px,oldZ=pz;const speed=5*dt,nx=Math.max(-38,Math.min(38,px+(Math.sin(yaw)*fw+Math.cos(yaw)*side)*speed)),nz=Math.max(-38,Math.min(38,pz+(-Math.cos(yaw)*fw+Math.sin(yaw)*side)*speed));if(!blocked(nx,py,pz))px=nx;if(!blocked(px,py,nz))pz=nz;
 if(flying){const ny=Math.max(1.65,Math.min(22,py+((held.up!==undefined||keys[' ']?1:0)-(held.down!==undefined||keys.shift?1:0))*speed));if(!blocked(px,ny,pz))py=ny;velocityY=0;}else{velocityY-=18*dt;const ny=py+velocityY*dt;if(blocked(px,ny,pz)||ny<1.65){grounded=velocityY<0;velocityY=0;}else{py=ny;grounded=false;}}
 const walked=Math.hypot(px-oldX,pz-oldZ);walkPhase+=walked*3.8;walkAmount+=(Math.min(1,walked/Math.max(.001,5*dt))-walkAmount)*Math.min(1,dt*12);
-if(now-actionClock>240){if(held.remove!==undefined)act('remove');else if(held.place!==undefined)act('place');actionClock=now;}document.getElementById('cross').classList.toggle('valid',!!target());let cx=Math.floor(px),cz=Math.floor(pz);if(cx!==lastcx||cz!==lastcz){dirty=true;lastcx=cx;lastcz=cz}if(dirty)build();const profile=profiles[qualityLevel],scale=Math.min(profile.scale,Math.sqrt(profile.pixels/(innerWidth*innerHeight)));const w=Math.max(1,Math.floor(innerWidth*scale)),h=Math.max(1,Math.floor(innerHeight*scale));if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;gl.viewport(0,0,w,h)}gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);gl.uniformMatrix4fv(mLoc,false,matmul(perspective(1.2,w/h,.07,55),view()));bindMesh(buffer);gl.drawArrays(gl.TRIANGLES,0,vertexCount);drawPlayer();frames++;if(now-frameClock>3000&&!savePending){document.getElementById('stats').textContent=Math.round(frames*1000/(now-frameClock))+' FPS · '+Object.keys(changes).length+' cambios';frames=0;frameClock=now}}
+if(now-actionClock>240){if(held.remove!==undefined)act('remove');else if(held.place!==undefined)act('place');actionClock=now;}document.getElementById('cross').classList.toggle('valid',!!target());let cx=Math.floor(px),cz=Math.floor(pz);if(cx!==lastcx||cz!==lastcz){dirty=true;lastcx=cx;lastcz=cz}if(dirty)build();const profile=profiles[qualityLevel],scale=Math.min(Math.min(window.devicePixelRatio||1,mobileDevice?1.5:2)*profile.scale,Math.sqrt(profile.pixels/(innerWidth*innerHeight)));const w=Math.max(1,Math.floor(innerWidth*scale)),h=Math.max(1,Math.floor(innerHeight*scale));if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;gl.viewport(0,0,w,h)}gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);gl.uniformMatrix4fv(mLoc,false,matmul(perspective(80*Math.PI/180,w/h,.07,80),view()));const eye=camera();gl.uniform3f(eyeLoc,eye.x,eye.y,eye.z);gl.uniform2f(fogLoc,profile.radius*.45,profile.radius-.75);bindMesh(buffer);gl.drawArrays(gl.TRIANGLES,0,vertexCount);drawPlayer();frames++;if(now-frameClock>3000&&!savePending){document.getElementById('stats').textContent=Math.round(frames*1000/(now-frameClock))+' FPS · '+Object.keys(changes).length+' cambios';frames=0;frameClock=now}}
 
 document.getElementById('exportWorld').onclick=()=>{try{window.exportGameWorld('voxel',changes);}catch{document.getElementById('exportWorld').textContent='No se pudo descargar. Reintentar';}};
 document.getElementById('importWorld').onclick=()=>document.getElementById('worldImportFile').click();
