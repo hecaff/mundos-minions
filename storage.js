@@ -3,7 +3,7 @@
 window.validateGameWorld=function(data){
  if(!data||!data.changes||typeof data.changes!=='object'||Array.isArray(data.changes))throw Error('invalid world');
  const changes={};const entries=Object.entries(data.changes);if(entries.length>140000)throw Error('world too large');
- for(const [key,id] of entries){if(!/^-?\d+,-?\d+,-?\d+$/.test(key)||!Number.isInteger(id)||id<0||id>10)throw Error('invalid block');const [x,y,z]=key.split(',').map(Number);if(Math.abs(x)>40||Math.abs(z)>40||y<0||y>20)throw Error('invalid position');changes[key]=id;}
+ for(const [key,id] of entries){if(!/^-?\d+,-?\d+,-?\d+$/.test(key)||!Number.isInteger(id)||id<0||id>10)throw Error('invalid block');const [x,y,z]=key.split(',').map(Number);if(Math.abs(x)>72||Math.abs(z)>72||y<0||y>20)throw Error('invalid position');changes[key]=id;}
  return {changes};
 };
 window.gameWorldFetch=async function(world,options={}){
